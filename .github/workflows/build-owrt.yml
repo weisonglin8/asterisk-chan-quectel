@@ -1,27 +1,32 @@
-name: Build channel - OpenWRT x86_64
+name: 构建频道 - OpenWRT x86_64
 on:
   push:
-  workflow_dispatch: # 支持页面手动点运行
+  workflow_dispatch: # 支持页面手动点击运行
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: 拉取仓库源码
         uses: actions/checkout@v4
-           - name: 下载iStoreOS x86_64 SDK
+
+      - name: 下载iStoreOS x86_64 SDK（修复404失效地址+Github加速）
         run: |
           wget https://mirror.ghproxy.com/https://github.com/istoreos/istoreos-sdk-x86_64/releases/download/23.10/openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk-*.tar.xz
           mv openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64 sdk
+
       - name: 复制插件到SDK包目录
         run: cp -r openwrt sdk/package/asterisk-chan-quectel
+
       - name: 加载Asterisk依赖
         run: |
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install asterisk
+
       - name: 交叉编译IPK
         run: make package/asterisk-chan-quectel/compile V=s -C sdk
+
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
