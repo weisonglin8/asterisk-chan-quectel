@@ -9,9 +9,13 @@ jobs:
       - name: 拉取仓库源码
         uses: actions/checkout@v4
 
-      - name: 下载iStoreOS x86_64 SDK（修复404失效地址+Github加速）
+      - name: 下载iStoreOS x86_64 SDK（移除失效ghproxy代理，原生Github链接）
         run: |
-          wget https://mirror.ghproxy.com/https://github.com/istoreos/istoreos-sdk-x86_64/releases/download/23.10/openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64.tar.xz
+          # 重试3次防止网络波动
+          for i in {1..3}; do
+            wget https://github.com/istoreos/istoreos-sdk-x86_64/releases/download/23.10/openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64.tar.xz && break
+            sleep 10
+          done
           tar -xf openwrt-sdk-*.tar.xz
           mv openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64 sdk
 
