@@ -1,28 +1,40 @@
-name: 编译asterisk-chan-quectel x86_64 IPK
+name: 构建频道 - OpenWRT x86_64
 on:
+  push:
   workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取源码
-        uses: gitee/checkout@v4
-      - name: 下载iStoreOS SDK
+      - name: 拉取当前chan-quectel源码
+        uses: actions/checkout@v4
+
+      - name: 安装编译依赖
         run: |
-          wget https://mirror.ghproxy.com/https://github.com/istoreos/istoreos-sdk-x86_64/releases/download/23.10/openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64.tar.xz
-          tar -xf openwrt-sdk-*.tar.xz
-          mv openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64 sdk
-      - name: 复制插件
-        run: cp -r openwrt sdk/package/asterisk-chan-quectel
-      - name: 安装依赖
+          sudo apt update
+          sudo apt install -y build-essential git gawk gettext libncurses-dev unzip bzip2 flex bison python3 python3-pip
+
+      - name: 拉取完整iStoreOS源码
         run: |
+          git clone https://github.com/istoreos/istoreos.git sdk
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install asterisk
-      - name: 编译IPK
+
+      - name: 复制quectel插件包到SDK
+        run: cp -r openwrt sdk/package/asterisk-chan-quectel
+
+      - name: 预生成.config(x86_64通用)
+        run: |
+          cd sdk
+          make defconfig
+          echo 'CONFIG_PACKAGE_asterisk-chan-quectel=y' >> .config
+
+      - name: 仅交叉编译quectel插件IPK
         run: make package/asterisk-chan-quectel/compile V=s -C sdk
-      - name: 输出安装包
-        uses: gitee/upload-artifact@v4
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
         with:
-          name: quectel-x86-ipk
+          name: quectel-x86_64-ipk
           path: sdk/bin/packages/x86_64/base/*.ipk
