@@ -1,38 +1,48 @@
 name: 构建频道 - OpenWRT x86_64
 on:
   push:
-  workflow_dispatch:
+  workflow_dispatch: # 支持手动点运行
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # 1. 拉取你当前chan-quectel源码
       - name: 拉取当前chan-quectel源码
         uses: actions/checkout@v4
 
+      # 2. 安装系统编译依赖
       - name: 安装编译依赖
         run: |
           sudo apt update
           sudo apt install -y build-essential git gawk gettext libncurses-dev unzip bzip2 flex bison python3 python3-pip
 
+      # 3. 拉取完整iStoreOS源码 + 完整清理更新feeds（修复缺Asterisk头文件）
       - name: 拉取完整iStoreOS源码
         run: |
           git clone https://github.com/istoreos/istoreos.git sdk
           cd sdk
+          # 清理旧feeds缓存，防止依赖缺失
+          ./scripts/feeds clean
           ./scripts/feeds update -a
+          ./scripts/feeds install -a
           ./scripts/feeds install asterisk
 
+      # 4. 复制插件包到SDK package目录
       - name: 复制quectel插件包到SDK
-        run: cp -r openwrt sdk/package/asterisk-chan-quectel
+        run: cp -r ./openwrt sdk/package/asterisk-chan-quectel
 
+      # 5. 生成x86_64默认编译配置
       - name: 预生成.config(x86_64通用)
         run: |
           cd sdk
           make defconfig
           echo 'CONFIG_PACKAGE_asterisk-chan-quectel=y' >> .config
 
+      # 6. 核心修改：单线程编译-j1，防止内存溢出崩溃
       - name: 仅交叉编译quectel插件IPK
-        run: make package/asterisk-chan-quectel/compile V=s -C sdk
+        run: make -j1 package/asterisk-chan-quectel/compile V=s -C sdk
 
+      # 7. 上传编译好的ipk安装包
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
