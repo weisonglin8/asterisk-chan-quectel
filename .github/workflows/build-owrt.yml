@@ -6,50 +6,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. 拉取当前chan-quectel源码
-      - name: 拉取当前chan-quectel源码
+      # 拉取当前chan-quectel源码
+      - name: 拉取chan-quectel源码
         uses: actions/checkout@v4
 
-      # 2. 安装系统编译依赖
-      - name: 安装编译依赖
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential git gawk gettext libncurses-dev unzip bzip2 flex bison python3 python3-pip
+      # 安装系统依赖
+      - name: 安装基础编译工具
+        run: sudo apt update && sudo apt install -y build-essential unzip xz-utils git
 
-      # 3. 拉取完整iStoreOS源码
-      - name: 拉取完整iStoreOS源码
+      # 下载官方预编译x86_64 SDK（固定x86架构，不会切MIPS）
+      - name: 下载iStoreOS x86_64 预编译SDK
         run: |
-          git clone https://github.com/istoreos/istoreos.git sdk
+          wget --timeout=60 https://mirror.ghproxy.com/https://github.com/istoreos/istoreos-sdk-x86_64/releases/download/v23.10.0/openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64.tar.xz
+          tar -xf openwrt-sdk-*.tar.xz
+          mv openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64 sdk
+
+      # 复制插件包到SDK
+      - name: 复制quectel插件
+        run: cp -r ./openwrt sdk/package/asterisk-chan-quectel
+
+      # 适配Asterisk18依赖，消除asterisk16警告
+      - name: 修改插件依赖版本
+        run: sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' sdk/package/asterisk-chan-quectel/Makefile
+
+      # 更新feeds并安装Asterisk依赖
+      - name: 加载软件源依赖
+        run: |
           cd sdk
-          ./scripts/feeds clean
           ./scripts/feeds update -a
           ./scripts/feeds install asterisk
 
-      # 4. 复制插件包到SDK package目录
-      - name: 复制quectel插件包到SDK
-        run: cp -r ./openwrt sdk/package/asterisk-chan-quectel
-
-      # 5. 标准x86_64配置（删除不存在的gen_config，改用官方默认x86配置）
-      - name: 预生成x86_64编译配置
-        run: |
-          cd sdk
-          # 加载x86通用默认配置，锁定x86_64架构
-          make defconfig
-          # 强制修改插件依赖从asterisk16 → asterisk18，适配iStoreOS
-          sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' package/asterisk-chan-quectel/Makefile
-          # 开启编译该插件
-          echo 'CONFIG_PACKAGE_asterisk-chan-quectel=y' >> .config
-          # 强制目标架构为x86_64，防止自动切mips
-          sed -i 's/CONFIG_TARGET_ath79=y/# CONFIG_TARGET_ath79=y/g' .config
-          sed -i 's/# CONFIG_TARGET_x86=y/CONFIG_TARGET_x86=y/g' .config
-          sed -i 's/# CONFIG_TARGET_x86_64_GENERIC=y/CONFIG_TARGET_x86_64_GENERIC=y/g' .config
-
-      # 6. 单线程编译，避免内存溢出
-      - name: 仅交叉编译quectel插件IPK
+      # 编译单插件，单线程防内存溢出
+      - name: 编译IPK安装包
         run: make -j1 package/asterisk-chan-quectel/compile V=s -C sdk
 
-      # 7. 上传编译产物
-      - name: 上传编译产物
+      # 上传产物
+      - name: 输出编译好的ipk
         uses: actions/upload-artifact@v4
         with:
           name: quectel-x86_64-ipk
