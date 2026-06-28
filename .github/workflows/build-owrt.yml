@@ -6,26 +6,33 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 拉取当前chan-quectel源码
+      # 拉取chan-quectel源码
       - name: 拉取chan-quectel源码
         uses: actions/checkout@v4
 
-      # 安装系统依赖
+      # 安装系统编译工具
       - name: 安装基础编译工具
         run: sudo apt update && sudo apt install -y build-essential unzip xz-utils git
 
-      # 下载官方预编译x86_64 SDK（固定x86架构，不会切MIPS）
+      # 下载iStoreOS x86_64预编译SDK（移除ghproxy，原生直链+5次重试+DNS修复）
       - name: 下载iStoreOS x86_64 预编译SDK
         run: |
-          wget --timeout=60 https://mirror.ghproxy.com/https://github.com/istoreos/istoreos-sdk-x86_64/releases/download/v23.10.0/openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64.tar.xz
+          # 切换公共DNS，提升域名解析成功率
+          echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+          # 循环重试5次下载，单次超时60秒
+          for i in {1..5}; do
+            wget --timeout=60 https://github.com/istoreos/istoreos-sdk-x86_64/releases/download/v23.10.0/openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64.tar.xz && break
+            echo "第$i次下载失败，等待20秒重试"
+            sleep 20
+          done
           tar -xf openwrt-sdk-*.tar.xz
           mv openwrt-sdk-x86_64-generic_gcc-12.3_musl.Linux-x86_64 sdk
 
-      # 复制插件包到SDK
+      # 复制插件包
       - name: 复制quectel插件
         run: cp -r ./openwrt sdk/package/asterisk-chan-quectel
 
-      # 适配Asterisk18依赖，消除asterisk16警告
+      # 修改依赖为asterisk18，消除版本警告
       - name: 修改插件依赖版本
         run: sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' sdk/package/asterisk-chan-quectel/Makefile
 
@@ -36,11 +43,11 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install asterisk
 
-      # 编译单插件，单线程防内存溢出
+      # 单线程编译防内存溢出
       - name: 编译IPK安装包
         run: make -j1 package/asterisk-chan-quectel/compile V=s -C sdk
 
-      # 上传产物
+      # 上传编译产物
       - name: 输出编译好的ipk
         uses: actions/upload-artifact@v4
         with:
