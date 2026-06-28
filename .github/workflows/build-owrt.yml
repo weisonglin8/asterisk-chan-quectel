@@ -5,15 +5,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取源码
+      # 拉取当前quectel源码
+      - name: 拉取项目源码
         uses: gitee/checkout@v4
 
-      - name: 安装系统编译依赖
+      # 安装全套编译依赖
+      - name: 安装编译工具链
         run: |
           sudo apt update
           sudo apt install -y build-essential git gawk gettext libncurses-dev unzip bzip2 flex bison xz-utils python3
 
-      - name: 克隆iStoreOS主源码（Gitee国内镜像，不会404）
+      # 克隆Gitee国内iStoreOS镜像，不会404
+      - name: 拉取iStoreOS完整源码（国内镜像）
         run: |
           git clone https://gitee.com/istoreos/istoreos.git sdk
           cd sdk
@@ -21,24 +24,29 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install asterisk
 
-      - name: 复制插件包到SDK
+      # 复制插件到SDK包目录
+      - name: 复制quectel插件包
         run: cp -r ./openwrt sdk/package/asterisk-chan-quectel
 
-      - name: 适配Asterisk18版本依赖
+      # 修改依赖适配iStoreOS默认Asterisk18，消除asterisk16警告
+      - name: 修复Asterisk版本依赖
         run: sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' sdk/package/asterisk-chan-quectel/Makefile
 
-      - name: 锁定x86_64架构
+      # 锁定x86_64架构，防止自动切MIPS
+      - name: 生成x86_64编译配置
         run: |
           cd sdk
           make defconfig
           echo 'CONFIG_PACKAGE_asterisk-chan-quectel=y' >> .config
           sed -i 's/# CONFIG_TARGET_x86_64_GENERIC=y/CONFIG_TARGET_x86_64_GENERIC=y/g' .config
 
-      - name: 单线程编译，防止内存溢出
+      # 单线程编译，避免内存溢出崩溃
+      - name: 交叉编译IPK安装包
         run: make -j1 package/asterisk-chan-quectel/compile V=s -C sdk
 
-      - name: 上传编译产物IPK
+      # 打包输出编译好的ipk
+      - name: 上传编译产物
         uses: gitee/upload-artifact@v4
         with:
-          name: quectel-x86_64-ipk
+          name: quectel-x86_64-ipk安装包
           path: sdk/bin/packages/x86_64/base/*.ipk
