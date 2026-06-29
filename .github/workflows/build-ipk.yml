@@ -17,9 +17,9 @@ jobs:
           sudo apt update -qq --fix-missing
           sudo apt install -y build-essential git wget unzip flex bison python3 python3-pip libncurses-dev libssl-dev zlib1g-dev swig
 
-      - name: 下载OpenWrt 24.10 x86_64 SDK（和iStoreOS底层完全匹配）
+      - name: 下载OpenWrt 24.10 x86_64 SDK（中科大镜像，修复404）
         run: |
-          wget https://downloads.openwrt.org/releases/24.10.7/targets/x86/64/openwrt-sdk-24.10.7-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          wget https://mirrors.ustc.edu.cn/openwrt/releases/24.10.7/targets/x86/64/openwrt-sdk-24.10.7-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk-*.tar.xz
           mv openwrt-sdk-* openwrt-sdk
           cd openwrt-sdk
@@ -49,7 +49,7 @@ jobs:
           cd openwrt-sdk
           make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=sc
 
-      - name: 上传编译产物
+      - name: 上传编译产物供下载
         uses: actions/upload-artifact@v4
         with:
           name: chan-quectel-x86_64-istoreos24.10
