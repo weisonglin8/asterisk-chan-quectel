@@ -38,26 +38,29 @@ jobs:
       - name: 编译驱动
         run: |
           cd sdk
+          # 先运行 defconfig 生成基础配置
           make defconfig
-          echo 'CONFIG_PACKAGE_asterisk-chan-quectel=m' >> .config
+          # 使用 scripts/config 工具精确修改配置（不会被 defconfig 覆盖）
+          ./scripts/config --set-mod PACKAGE_asterisk
+          ./scripts/config --set-mod PACKAGE_asterisk-chan-quectel
+          # 再次 defconfig 确保依赖补全
           make defconfig
+          # 编译
           make -j$(nproc) V=s package/asterisk-chan-quectel/compile
 
       - name: 调试：查找所有生成的文件
         if: always()
         run: |
           echo "===== 查找所有 IPK ====="
-          find sdk -name "*.ipk" 2>/dev/null
-          echo "===== bin 目录结构 ====="
-          find sdk/bin -type d 2>/dev/null
-          echo "===== 可能的产物路径 ====="
-          ls -la sdk/bin/packages/*/ 2>/dev/null || true
-          ls -la sdk/bin/packages/x86_64/*/ 2>/dev/null || true
+          find sdk -name "*.ipk" | grep -i quectel || echo "未找到 quectel 相关 IPK"
+          echo "===== 查找 bin 目录 ====="
+          find sdk/bin -type d
 
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: Quectel-驱动-iStoreOS
           path: |
-            sdk/bin/packages/*/*/*.ipk
+            sdk/bin/packages/x86_64/*/*quectel*.ipk
+            sdk/bin/packages/x86_64/*/asterisk-chan-quectel*.ipk
           if-no-files-found: warn
