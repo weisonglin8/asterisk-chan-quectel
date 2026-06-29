@@ -1,79 +1,57 @@
-name: iStoreOS Quectel 驱动 x86_64
-
+name: Build chan_quectel for Asterisk 20.8.1
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-x86_64:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取仓库源码
+      - name: 基础系统依赖更新
+        run: |
+          sudo apt update -qq
+          sudo apt upgrade -y -qq
+          sudo apt install -y -qq git wget build-essential cmake libsqlite3-dev libasound2-dev libudev-dev libssl-dev libncurses-dev libedit-dev libjansson-dev cpack
+
+      - name: 下载 Asterisk 20.8.1 源码
+        run: |
+          wget https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-20.8.1.tar.gz
+          tar zxf asterisk-20.8.1.tar.gz
+          cd asterisk-20.8.1
+
+      - name: 编译安装 Asterisk 20.8.1
+        run: |
+          cd asterisk-20.8.1
+          ./configure --prefix=/usr/local/asterisk
+          make -j$(nproc)
+          sudo make install
+          sudo make samples
+          sudo ldconfig
+
+      - name: 拉取 chan-quectel 源码
         uses: actions/checkout@v4
 
-      - name: 预装编译工具
+      - name: CMake 编译 chan-quectel（指定Asterisk20.8.1头文件）
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential git gawk gettext \
-            libncurses-dev unzip bzip2 flex bison python3 xz-utils \
-            rsync wget file
+          rm -rf build
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DASTERISK_HEADERS=/usr/local/asterisk/include \
+            -DENABLE_UAC=ON \
+            -DCMAKE_INSTALL_PREFIX=/usr/local/asterisk/modules
+          make -j$(nproc)
+          sudo make install
 
-      - name: 下载 OpenWrt SDK
+      - name: 打包deb安装包
         run: |
-          SDK_URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
-          wget -q --show-progress "$SDK_URL" -O sdk.tar.xz
-          tar -xf sdk.tar.xz
-          mv openwrt-sdk-* sdk
-
-      - name: 配置SDK并导入驱动
-        run: |
-          cd sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          ./scripts/feeds install asterisk
-          
-          # 创建标准 OpenWRT 包目录结构
-          mkdir -p package/asterisk-chan-quectel/src
-          
-          # 复制 Makefile 到包根目录
-          cp $GITHUB_WORKSPACE/openwrt/Makefile package/asterisk-chan-quectel/
-          
-          # 复制所有源码文件到 src/ 目录
-          cp $GITHUB_WORKSPACE/openwrt/configure.ac package/asterisk-chan-quectel/src/
-          # 如果有 urlmakefile 或其他文件需要复制，也放这里
-          # cp -r $GITHUB_WORKSPACE/openwrt/urlmakefile package/asterisk-chan-quectel/src/
-          
-          # 修改依赖
-          sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk/g' package/asterisk-chan-quectel/Makefile
-          
-          echo "===== 包目录结构 ====="
-          find package/asterisk-chan-quectel -type f
-          echo "===== Makefile 内容 ====="
-          cat package/asterisk-chan-quectel/Makefile
-
-      - name: 编译驱动
-        run: |
-          cd sdk
-          make defconfig
-          
-          # 启用包
-          cat >> .config << 'EOF'
-          CONFIG_PACKAGE_asterisk=m
-          CONFIG_PACKAGE_asterisk-chan-quectel=m
-          EOF
-          
-          make defconfig
-          
-          echo "===== 验证配置 ====="
-          grep "asterisk-chan-quectel" .config || echo "不在 .config 中"
-          
-          make -j$(nproc) V=s package/asterisk-chan-quectel/compile
+          cd build
+          cpack -G DEB
+          ls -lh *.deb
 
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
-          name: Quectel-驱动-iStoreOS
-          path: |
-            sdk/bin/packages/x86_64/*/*quectel*.ipk
-          if-no-files-found: warn
+          name: chan-quectel-ast20.8.1-x86_64
+          path: build/*.deb
