@@ -31,24 +31,33 @@ jobs:
           cd sdk
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 显式安装 asterisk（确保依赖存在）
           ./scripts/feeds install asterisk
           
-          mkdir -p package/asterisk-chan-quectel
-          cp -r $GITHUB_WORKSPACE/openwrt/* package/asterisk-chan-quectel/
+          # 创建标准 OpenWRT 包目录结构
+          mkdir -p package/asterisk-chan-quectel/src
+          
+          # 复制 Makefile 到包根目录
+          cp $GITHUB_WORKSPACE/openwrt/Makefile package/asterisk-chan-quectel/
+          
+          # 复制所有源码文件到 src/ 目录
+          cp $GITHUB_WORKSPACE/openwrt/configure.ac package/asterisk-chan-quectel/src/
+          # 如果有 urlmakefile 或其他文件需要复制，也放这里
+          # cp -r $GITHUB_WORKSPACE/openwrt/urlmakefile package/asterisk-chan-quectel/src/
+          
+          # 修改依赖
           sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk/g' package/asterisk-chan-quectel/Makefile
+          
+          echo "===== 包目录结构 ====="
+          find package/asterisk-chan-quectel -type f
+          echo "===== Makefile 内容 ====="
+          cat package/asterisk-chan-quectel/Makefile
 
       - name: 编译驱动
         run: |
           cd sdk
           make defconfig
           
-          # 诊断信息
-          echo "===== 确认包被识别 ====="
-          find package -name "*quectel*" -type d
-          grep -r "PKG_NAME.*asterisk-chan-quectel" package/asterisk-chan-quectel/Makefile
-          
-          # 追加配置
+          # 启用包
           cat >> .config << 'EOF'
           CONFIG_PACKAGE_asterisk=m
           CONFIG_PACKAGE_asterisk-chan-quectel=m
@@ -56,20 +65,10 @@ jobs:
           
           make defconfig
           
-          # 验证配置
-          echo "===== 验证 .config ====="
-          grep "CONFIG_PACKAGE_asterisk-chan-quectel" .config || echo "WARNING: quectel 不在 .config 中"
+          echo "===== 验证配置 ====="
+          grep "asterisk-chan-quectel" .config || echo "不在 .config 中"
           
-          # 编译
           make -j$(nproc) V=s package/asterisk-chan-quectel/compile
-
-      - name: 调试：查找所有生成的文件
-        if: always()
-        run: |
-          echo "===== 查找所有 IPK ====="
-          find sdk -name "*.ipk" | grep -i quectel || echo "未找到 quectel 相关 IPK"
-          echo "===== 查找 bin/packages ====="
-          find sdk/bin -type d 2>/dev/null || echo "bin 目录不存在"
 
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
