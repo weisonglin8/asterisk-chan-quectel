@@ -1,0 +1,56 @@
+name: Build IPK for iStoreOS 24.10 x86_64
+on:
+  workflow_dispatch:
+
+jobs:
+  build_ipk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取仓库全部源码
+        uses: actions/checkout@v4
+
+      - name: 更换国内清华apt源，解决国外服务器下载超时
+        run: |
+          sudo sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
+          sudo sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
+          sudo apt clean
+          sudo apt update -qq --fix-missing
+          sudo apt install -y build-essential git wget unzip flex bison python3 python3-pip libncurses-dev libssl-dev zlib1g-dev swig
+
+      - name: 下载OpenWrt 24.10 x86_64 SDK（和iStoreOS底层完全匹配）
+        run: |
+          wget https://downloads.openwrt.org/releases/24.10.7/targets/x86/64/openwrt-sdk-24.10.7-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          tar -xf openwrt-sdk-*.tar.xz
+          mv openwrt-sdk-* openwrt-sdk
+          cd openwrt-sdk
+          ./scripts/feeds update -a
+          ./scripts/feeds install asterisk
+
+      - name: 导入chan-quectel打包文件（仓库文件夹小写openwrt）
+        run: |
+          cd openwrt-sdk
+          mkdir -p package/telephony/asterisk-chan-quectel
+          cp -r $GITHUB_WORKSPACE/openwrt/* package/telephony/asterisk-chan-quectel/
+          ls -la package/telephony/asterisk-chan-quectel/
+          ./scripts/feeds update telephony
+          ./scripts/feeds install asterisk-chan-quectel
+
+      - name: 生成x86_64编译配置
+        run: |
+          cd openwrt-sdk
+          echo "CONFIG_TARGET_x86=y" >> .config
+          echo "CONFIG_TARGET_x86_64=y" >> .config
+          echo "CONFIG_PACKAGE_asterisk=y" >> .config
+          echo "CONFIG_PACKAGE_asterisk-chan-quectel=y" >> .config
+          make defconfig
+
+      - name: 编译IPK安装包
+        run: |
+          cd openwrt-sdk
+          make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=sc
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: chan-quectel-x86_64-istoreos24.10
+          path: openwrt-sdk/bin/packages/x86_64/telephony/*.ipk
