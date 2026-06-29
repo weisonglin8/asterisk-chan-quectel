@@ -1,6 +1,6 @@
 name: Build asterisk-chan-quectel IPK (x86_64 iStoreOS J1900)
 on:
-  workflow_dispatch: # 手动一键编译，不依赖推送
+  workflow_dispatch:
   push:
     branches: [main, master]
 
@@ -8,7 +8,6 @@ jobs:
   compile-ipk-x86_64:
     runs-on: ubuntu-latest
     steps:
-      # ========== 修复apt源，彻底解决“无法找到包裹”报错 ==========
       - name: 替换清华Ubuntu镜像，修复软件源索引
         run: |
           sudo sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
@@ -17,51 +16,42 @@ jobs:
           sudo apt update -qq --fix-missing
           sudo apt upgrade -y -qq --fix-missing
 
-      # ========== 安装OpenWrt完整编译依赖（全部有效包名） ==========
-      - name: 安装OpenWrt编译工具链
+      # 修复点：移除 python3-distutils，适配Ubuntu24.04
+      - name: 安装OpenWrt编译工具链（修复版）
         run: |
           sudo apt install -y -qq \
             build-essential git wget unzip curl bzip2 file \
-            flex bison perl python3 python3-distutils swig \
+            flex bison perl python3 python3-pip swig \
             libncurses-dev libssl-dev zlib1g-dev
 
-      # ========== 拉取OpenWrt 23.05源码（匹配iStoreOS底层） ==========
       - name: 克隆 OpenWrt 23.05
         run: |
           git clone https://github.com/openwrt/openwrt.git openwrt
           cd openwrt
           git checkout openwrt-23.05
-          # 更新软件源 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ========== 导入 chan-quectel 源码到OpenWrt包目录 ==========
       - name: 引入 asterisk-chan-quectel 软件包
         run: |
           cd openwrt/package/telephony
           git clone https://github.com/AlchemillaHQ/asterisk-chan-quectel asterisk-chan-quectel
           cd ../../
 
-      # ========== 生成J1900 x86_64专用编译配置 ==========
       - name: 生成 x86_64 编译配置
         run: |
           cd openwrt
-          # 锁定x86_64架构
           echo "CONFIG_TARGET_x86=y" >> .config
           echo "CONFIG_TARGET_x86_64=y" >> .config
-          # 启用Asterisk 20
           echo "CONFIG_PACKAGE_asterisk=y" >> .config
           echo "CONFIG_PACKAGE_asterisk-chan-quectel=y" >> .config
-          # 自动补全依赖配置
           make defconfig
 
-      # ========== 仅编译 chan-quectel 模块（不用全固件编译，速度快） ==========
       - name: 编译 IPK 安装包
         run: |
           cd openwrt
           make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=s
 
-      # ========== 上传编译产出IPK ==========
       - name: 上传编译好的ipk文件
         uses: actions/upload-artifact@v4
         with:
