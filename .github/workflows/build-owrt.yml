@@ -19,8 +19,7 @@ jobs:
             libncurses-dev unzip bzip2 flex bison python3 xz-utils \
             rsync wget file
 
-      # 尝试下载 iStoreOS 同源 SDK（OpenWRT 23.05.5）
-      - name: 下载 OpenWrt 23.05.5 SDK（iStoreOS 同源）
+      - name: 下载 OpenWrt SDK
         run: |
           SDK_URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
           wget -q --show-progress "$SDK_URL" -O sdk.tar.xz
@@ -44,9 +43,21 @@ jobs:
           make defconfig
           make -j$(nproc) V=s package/asterisk-chan-quectel/compile
 
+      - name: 调试：查找所有生成的文件
+        if: always()
+        run: |
+          echo "===== 查找所有 IPK ====="
+          find sdk -name "*.ipk" 2>/dev/null
+          echo "===== bin 目录结构 ====="
+          find sdk/bin -type d 2>/dev/null
+          echo "===== 可能的产物路径 ====="
+          ls -la sdk/bin/packages/*/ 2>/dev/null || true
+          ls -la sdk/bin/packages/x86_64/*/ 2>/dev/null || true
+
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: Quectel-驱动-iStoreOS
-          path: sdk/bin/packages/x86_64/base/asterisk-chan-quectel_*.ipk
-          if-no-files-found: error
+          path: |
+            sdk/bin/packages/*/*/*.ipk
+          if-no-files-found: warn
