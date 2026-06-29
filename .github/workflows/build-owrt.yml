@@ -28,21 +28,13 @@ jobs:
           git clone https://github.com/openwrt/openwrt.git openwrt
           cd openwrt
           git checkout openwrt-23.05
+          # 新增：添加chan-quectel自定义feed
+          echo 'src-git chanquectel https://github.com/AlchemillaHQ/asterisk-chan-quectel.git' >> feeds.conf.default
+          # 更新全部feeds并安装
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 修复：正确提取仓库内openwrt打包文件，生成标准包目录
-      - name: 引入 asterisk-chan-quectel 软件包（修复目录结构）
-        run: |
-          cd openwrt
-          git clone https://github.com/AlchemillaHQ/asterisk-chan-quectel /tmp/chanq-src
-          mkdir -p package/telephony/asterisk-chan-quectel
-          cp -r /tmp/chanq-src/openwrt/* package/telephony/asterisk-chan-quectel/
-          rm -rf /tmp/chanq-src
-          ./scripts/feeds update telephony
-          ./scripts/feeds install asterisk-chan-quectel
-
-      - name: 生成 x86_64 编译配置（强制同步feeds）
+      - name: 生成 x86_64 编译配置
         run: |
           cd openwrt
           echo "CONFIG_TARGET_x86=y" >> .config
@@ -52,13 +44,13 @@ jobs:
           make defconfig
           make menuconfig -n
 
-      - name: 编译 IPK 安装包（完整日志输出）
+      - name: 编译 IPK 安装包
         run: |
           cd openwrt
-          make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=sc
+          make package/asterisk-chan-quectel/compile -j$(nproc) V=sc
 
       - name: 上传编译好的ipk文件
         uses: actions/upload-artifact@v4
         with:
           name: chan-quectel-x86_64-istoreos-j1900
-          path: openwrt/bin/packages/x86_64/telephony/*.ipk
+          path: openwrt/bin/packages/x86_64/chanquectel/*.ipk
