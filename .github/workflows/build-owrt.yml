@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # 1. 检出当前仓库（包含 chan-quectel 源码）
-      - name: 拉取当前仓库源码
+      - name: 拉取当前仓库
         uses: actions/checkout@v4
 
       # 2. 安装编译依赖
@@ -21,55 +21,50 @@ jobs:
             libncurses-dev unzip bzip2 flex bison python3 xz-utils \
             rsync file wget
 
-      # 3. 拉取 iStoreOS 源码（浅克隆，仅最近1次提交，节省时间和空间）
-      - name: 拉取 iStoreOS 源码
+      # 3. 下载 OpenWRT 23.05.5 x86_64 SDK（已包含预编译工具链）
+      - name: 下载 OpenWRT SDK
         run: |
-          git clone --depth 1 https://github.com/istoreos/istoreos.git sdk
+          SDK_URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
+          wget -q --show-progress "$SDK_URL" -O sdk.tar.xz
+          tar -xf sdk.tar.xz
+          mv openwrt-sdk-* sdk
+
+      # 4. 配置 SDK：更新 feeds、安装 telephony feed、复制插件包
+      - name: 配置 SDK 并复制插件
+        run: |
           cd sdk
-          ./scripts/feeds clean
+          
+          # 更新所有 feeds（包含 telephony，其中有 asterisk）
           ./scripts/feeds update -a
-
-      # 4. 复制插件到 SDK 的 package 目录
-      - name: 复制 quectel 插件包到 SDK
-        run: |
-          # 假设你的仓库根目录有 openwrt/ 文件夹存放 Makefile 等
-          mkdir -p sdk/package/asterisk-chan-quectel
-          cp -r ./openwrt/* sdk/package/asterisk-chan-quectel/
-
-      # 5. 配置目标架构并修复依赖
-      - name: 生成 x86_64 编译配置
-        run: |
-          cd sdk
           
-          # 显式设置目标为 x86_64
-          cat > .config << 'EOF'
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_GENERIC=y
-          CONFIG_PACKAGE_asterisk=y
-          CONFIG_PACKAGE_asterisk-chan-quectel=y
-          EOF
+          # 安装 feeds（创建符号链接）
+          ./scripts/feeds install -a
           
-          # 扩展配置（defconfig 会根据 .config 补全其余选项）
-          make defconfig
+          # 复制你的插件到 SDK
+          mkdir -p package/asterisk-chan-quectel
+          cp -r $GITHUB_WORKSPACE/openwrt/* package/asterisk-chan-quectel/
           
-          # 修复依赖：asterisk16 → asterisk18
-          sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' \
-            package/asterisk-chan-quectel/Makefile
+          # 修复依赖：OpenWRT 23.05 使用 Asterisk 20.x，包名为 asterisk
+          # 建议将 Makefile 中的 DEPENDS:=+asterisk16 改为 DEPENDS:=+asterisk
+          sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk/g' package/asterisk-chan-quectel/Makefile
 
-      # 6. 编译（先编译依赖，再编译目标包）
+      # 5. 编译
       - name: 编译 quectel 插件
         run: |
           cd sdk
-          make -j1 V=s package/asterisk-chan-quectel/compile
-        # 如果内存不足，可以保留 -j1；如果 runner 内存足够（GitHub 免费版 7GB），可尝试 -j2
+          # 生成默认配置
+          make defconfig
+          # 显式启用我们的包
+          echo 'CONFIG_PACKAGE_asterisk-chan-quectel=m' >> .config
+          make defconfig
+          # 编译（SDK 已包含工具链，无需编译 toolchain）
+          make -j$(nproc) V=s package/asterisk-chan-quectel/compile
 
-      # 7. 查找并上传产物
+      # 6. 上传产物
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: quectel-x86_64-ipk
           path: |
             sdk/bin/packages/x86_64/*/*.ipk
-            sdk/bin/targets/x86/64/packages/*.ipk
           if-no-files-found: error
