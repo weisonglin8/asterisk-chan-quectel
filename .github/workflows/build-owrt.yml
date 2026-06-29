@@ -16,7 +16,7 @@ jobs:
           sudo apt update -qq --fix-missing
           sudo apt upgrade -y -qq --fix-missing
 
-      - name: 安装OpenWrt编译工具链（移除python3-distutils兼容新版Ubuntu）
+      - name: 安装OpenWrt编译工具链（兼容Ubuntu24.04）
         run: |
           sudo apt install -y -qq \
             build-essential git wget unzip curl bzip2 file \
@@ -31,15 +31,18 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ========== 修复点：增加自动创建telephony目录 ==========
-      - name: 引入 asterisk-chan-quectel 软件包
+      - name: 引入 asterisk-chan-quectel 软件包（修复feeds重载）
         run: |
           cd openwrt
           mkdir -p package/telephony
           cd package/telephony
           git clone https://github.com/AlchemillaHQ/asterisk-chan-quectel asterisk-chan-quectel
+          # 重载feeds识别新增包
+          cd ../../
+          ./scripts/feeds update telephony
+          ./scripts/feeds install asterisk-chan-quectel
 
-      - name: 生成 x86_64 编译配置（J1900专用）
+      - name: 生成 x86_64 编译配置（强制同步feeds）
         run: |
           cd openwrt
           echo "CONFIG_TARGET_x86=y" >> .config
@@ -47,11 +50,12 @@ jobs:
           echo "CONFIG_PACKAGE_asterisk=y" >> .config
           echo "CONFIG_PACKAGE_asterisk-chan-quectel=y" >> .config
           make defconfig
+          make menuconfig -n
 
-      - name: 编译 IPK 安装包
+      - name: 编译 IPK 安装包（完整日志输出）
         run: |
           cd openwrt
-          make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=s
+          make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=sc
 
       - name: 上传编译好的ipk文件
         uses: actions/upload-artifact@v4
