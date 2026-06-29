@@ -31,14 +31,14 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 引入 asterisk-chan-quectel 软件包（修复feeds重载）
+      # 修复：正确提取仓库内openwrt打包文件，生成标准包目录
+      - name: 引入 asterisk-chan-quectel 软件包（修复目录结构）
         run: |
           cd openwrt
-          mkdir -p package/telephony
-          cd package/telephony
-          git clone https://github.com/AlchemillaHQ/asterisk-chan-quectel asterisk-chan-quectel
-          # 重载feeds识别新增包
-          cd ../../
+          git clone https://github.com/AlchemillaHQ/asterisk-chan-quectel /tmp/chanq-src
+          mkdir -p package/telephony/asterisk-chan-quectel
+          cp -r /tmp/chanq-src/openwrt/* package/telephony/asterisk-chan-quectel/
+          rm -rf /tmp/chanq-src
           ./scripts/feeds update telephony
           ./scripts/feeds install asterisk-chan-quectel
 
