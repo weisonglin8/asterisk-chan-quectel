@@ -1,44 +1,54 @@
-name: 编译asterisk-chan-quectel x86_64 IPK
+name: 构建频道 - OpenWRT x86_64
 on:
+  push:
   workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取当前项目源码
-        uses: gitee/checkout@v4
+      # 1. 拉取chan-quectel源码
+      - name: 拉取当前chan-quectel源码
+        uses: actions/checkout@v4
 
-      - name: 预装全套编译依赖
+      # 2. 安装系统编译依赖
+      - name: 安装编译依赖
         run: |
           sudo apt update
-          sudo apt install -y build-essential git gawk gettext libncurses-dev unzip bzip2 flex bison xz-utils python3
+          sudo apt install -y build-essential git gawk gettext libncurses-dev unzip bzip2 flex bison python3 xz-utils
 
-      - name: 克隆国内镜像iStoreOS完整源码（无404）
+      # 3. 直接克隆完整iStoreOS源码，抛弃失效SDK下载链接
+      - name: 拉取完整iStoreOS源码
         run: |
-          git clone https://gitee.com/istoreos/istoreos.git sdk
+          git clone https://github.com/istoreos/istoreos.git sdk
           cd sdk
           ./scripts/feeds clean
           ./scripts/feeds update -a
           ./scripts/feeds install asterisk
 
-      - name: 复制插件包至SDK编译目录
+      # 4. 复制插件包
+      - name: 复制quectel插件包到SDK
         run: cp -r ./openwrt sdk/package/asterisk-chan-quectel
 
-      - name: 修改依赖适配Asterisk18（消除版本不存在警告）
-        run: sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' sdk/package/asterisk-chan-quectel/Makefile
-
-      - name: 锁定x86_64架构，避免自动编译MIPS工具链报错
+      # 5. 配置x86_64架构 + 修复Asterisk16依赖
+      - name: 预生成x86_64编译配置
         run: |
           cd sdk
           make defconfig
-          echo 'CONFIG_PACKAGE_asterisk-chan-quectel=y' >> .config
+          # 修改依赖从asterisk16 → asterisk18
+          sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' package/asterisk-chan-quectel/Makefile
+          # 强制启用x86_64，屏蔽MIPS
+          sed -i 's/CONFIG_TARGET_ath79=y/# CONFIG_TARGET_ath79=y/g' .config
+          sed -i 's/# CONFIG_TARGET_x86=y/CONFIG_TARGET_x86=y/g' .config
           sed -i 's/# CONFIG_TARGET_x86_64_GENERIC=y/CONFIG_TARGET_x86_64_GENERIC=y/g' .config
+          echo 'CONFIG_PACKAGE_asterisk-chan-quectel=y' >> .config
 
-      - name: 单线程编译，防止内存溢出崩溃
+      # 6. 单线程编译防内存溢出
+      - name: 仅交叉编译quectel插件IPK
         run: make -j1 package/asterisk-chan-quectel/compile V=s -C sdk
 
-      - name: 输出编译好的ipk安装包
-        uses: gitee/upload-artifact@v4
+      # 7. 上传产物
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
         with:
-          name: quectel-x86_64-ipk安装包
+          name: quectel-x86_64-ipk
           path: sdk/bin/packages/x86_64/base/*.ipk
