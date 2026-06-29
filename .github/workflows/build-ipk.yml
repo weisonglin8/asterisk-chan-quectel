@@ -9,7 +9,7 @@ jobs:
       - name: 拉取仓库全部源码
         uses: actions/checkout@v4
 
-      - name: 更换国内清华apt源，解决国外服务器下载超时
+      - name: 更换国内清华apt源
         run: |
           sudo sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
           sudo sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
@@ -17,16 +17,17 @@ jobs:
           sudo apt update -qq --fix-missing
           sudo apt install -y build-essential git wget unzip flex bison python3 python3-pip libncurses-dev libssl-dev zlib1g-dev swig
 
-      - name: 下载OpenWrt 24.10 x86_64 SDK（中科大镜像，修复404）
+      # 整段完全替换为清华镜像SDK，删除原来downloads.openwrt.org链接
+      - name: 下载OpenWrt 24.10 SDK（清华镜像，杜绝404）
         run: |
-          wget https://mirrors.ustc.edu.cn/openwrt/releases/24.10.7/targets/x86/64/openwrt-sdk-24.10.7-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
+          wget --retry-connrefused --waitretry=5 --timeout=30 https://mirrors.tuna.tsinghua.edu.cn/openwrt/releases/24.10.7/targets/x86/64/openwrt-sdk-24.10.7-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk-*.tar.xz
           mv openwrt-sdk-* openwrt-sdk
           cd openwrt-sdk
           ./scripts/feeds update -a
           ./scripts/feeds install asterisk
 
-      - name: 导入chan-quectel打包文件（仓库文件夹小写openwrt）
+      - name: 导入chan-quectel打包文件
         run: |
           cd openwrt-sdk
           mkdir -p package/telephony/asterisk-chan-quectel
@@ -49,7 +50,7 @@ jobs:
           cd openwrt-sdk
           make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=sc
 
-      - name: 上传编译产物供下载
+      - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: chan-quectel-x86_64-istoreos24.10
