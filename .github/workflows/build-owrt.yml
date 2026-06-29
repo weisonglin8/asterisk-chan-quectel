@@ -38,12 +38,14 @@ jobs:
       - name: 编译驱动
         run: |
           cd sdk
-          # 先运行 defconfig 生成基础配置
+          # 生成基础配置
           make defconfig
-          # 使用 scripts/config 工具精确修改配置（不会被 defconfig 覆盖）
-          ./scripts/config --set-mod PACKAGE_asterisk
-          ./scripts/config --set-mod PACKAGE_asterisk-chan-quectel
-          # 再次 defconfig 确保依赖补全
+          # 直接追加配置（确保依赖包也被选中）
+          cat >> .config << 'EOF'
+          CONFIG_PACKAGE_asterisk=m
+          CONFIG_PACKAGE_asterisk-chan-quectel=m
+          EOF
+          # 同步依赖关系
           make defconfig
           # 编译
           make -j$(nproc) V=s package/asterisk-chan-quectel/compile
@@ -54,7 +56,7 @@ jobs:
           echo "===== 查找所有 IPK ====="
           find sdk -name "*.ipk" | grep -i quectel || echo "未找到 quectel 相关 IPK"
           echo "===== 查找 bin 目录 ====="
-          find sdk/bin -type d
+          find sdk -type d -name "bin" | head -5
 
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
