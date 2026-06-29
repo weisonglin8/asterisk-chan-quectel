@@ -1,54 +1,75 @@
 name: 构建频道 - OpenWRT x86_64
+
 on:
   push:
+    branches: [main, master]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. 拉取chan-quectel源码
-      - name: 拉取当前chan-quectel源码
+      # 1. 检出当前仓库（包含 chan-quectel 源码）
+      - name: 拉取当前仓库源码
         uses: actions/checkout@v4
 
-      # 2. 安装系统编译依赖
+      # 2. 安装编译依赖
       - name: 安装编译依赖
         run: |
-          sudo apt update
-          sudo apt install -y build-essential git gawk gettext libncurses-dev unzip bzip2 flex bison python3 xz-utils
+          sudo apt-get update
+          sudo apt-get install -y build-essential git gawk gettext \
+            libncurses-dev unzip bzip2 flex bison python3 xz-utils \
+            rsync file wget
 
-      # 3. 直接克隆完整iStoreOS源码，抛弃失效SDK下载链接
-      - name: 拉取完整iStoreOS源码
+      # 3. 拉取 iStoreOS 源码（浅克隆，仅最近1次提交，节省时间和空间）
+      - name: 拉取 iStoreOS 源码
         run: |
-          git clone https://github.com/istoreos/istoreos.git sdk
+          git clone --depth 1 https://github.com/istoreos/istoreos.git sdk
           cd sdk
           ./scripts/feeds clean
           ./scripts/feeds update -a
-          ./scripts/feeds install asterisk
 
-      # 4. 复制插件包
-      - name: 复制quectel插件包到SDK
-        run: cp -r ./openwrt sdk/package/asterisk-chan-quectel
+      # 4. 复制插件到 SDK 的 package 目录
+      - name: 复制 quectel 插件包到 SDK
+        run: |
+          # 假设你的仓库根目录有 openwrt/ 文件夹存放 Makefile 等
+          mkdir -p sdk/package/asterisk-chan-quectel
+          cp -r ./openwrt/* sdk/package/asterisk-chan-quectel/
 
-      # 5. 配置x86_64架构 + 修复Asterisk16依赖
-      - name: 预生成x86_64编译配置
+      # 5. 配置目标架构并修复依赖
+      - name: 生成 x86_64 编译配置
         run: |
           cd sdk
+          
+          # 显式设置目标为 x86_64
+          cat > .config << 'EOF'
+          CONFIG_TARGET_x86=y
+          CONFIG_TARGET_x86_64=y
+          CONFIG_TARGET_x86_64_GENERIC=y
+          CONFIG_PACKAGE_asterisk=y
+          CONFIG_PACKAGE_asterisk-chan-quectel=y
+          EOF
+          
+          # 扩展配置（defconfig 会根据 .config 补全其余选项）
           make defconfig
-          # 修改依赖从asterisk16 → asterisk18
-          sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' package/asterisk-chan-quectel/Makefile
-          # 强制启用x86_64，屏蔽MIPS
-          sed -i 's/CONFIG_TARGET_ath79=y/# CONFIG_TARGET_ath79=y/g' .config
-          sed -i 's/# CONFIG_TARGET_x86=y/CONFIG_TARGET_x86=y/g' .config
-          sed -i 's/# CONFIG_TARGET_x86_64_GENERIC=y/CONFIG_TARGET_x86_64_GENERIC=y/g' .config
-          echo 'CONFIG_PACKAGE_asterisk-chan-quectel=y' >> .config
+          
+          # 修复依赖：asterisk16 → asterisk18
+          sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk18/g' \
+            package/asterisk-chan-quectel/Makefile
 
-      # 6. 单线程编译防内存溢出
-      - name: 仅交叉编译quectel插件IPK
-        run: make -j1 package/asterisk-chan-quectel/compile V=s -C sdk
+      # 6. 编译（先编译依赖，再编译目标包）
+      - name: 编译 quectel 插件
+        run: |
+          cd sdk
+          make -j1 V=s package/asterisk-chan-quectel/compile
+        # 如果内存不足，可以保留 -j1；如果 runner 内存足够（GitHub 免费版 7GB），可尝试 -j2
 
-      # 7. 上传产物
+      # 7. 查找并上传产物
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: quectel-x86_64-ipk
-          path: sdk/bin/packages/x86_64/base/*.ipk
+          path: |
+            sdk/bin/packages/x86_64/*/*.ipk
+            sdk/bin/targets/x86/64/packages/*.ipk
+          if-no-files-found: error
