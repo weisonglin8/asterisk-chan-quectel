@@ -1,5 +1,4 @@
-name: 构建频道 - OpenWRT x86_64
-
+name: 构建Quectel x86_64 精简单包
 on:
   push:
     branches: [main, master]
@@ -9,11 +8,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. 检出当前仓库（包含 chan-quectel 源码）
+      # 1. 拉取项目源码
       - name: 拉取当前仓库
         uses: actions/checkout@v4
 
-      # 2. 安装编译依赖
+      # 2. 预装编译环境依赖
       - name: 安装编译依赖
         run: |
           sudo apt-get update
@@ -21,7 +20,7 @@ jobs:
             libncurses-dev unzip bzip2 flex bison python3 xz-utils \
             rsync file wget
 
-      # 3. 下载 OpenWRT 23.05.5 x86_64 SDK（预编译工具链）
+      # 3. 下载OpenWrt 23.05.5 x86_64 SDK
       - name: 下载 OpenWRT SDK
         run: |
           SDK_URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
@@ -29,7 +28,7 @@ jobs:
           tar -xf sdk.tar.xz
           mv openwrt-sdk-* sdk
 
-      # 4. 配置 SDK、复制插件、适配Asterisk20
+      # 4. 初始化SDK、复制插件、适配Asterisk20
       - name: 配置 SDK 并复制插件
         run: |
           cd sdk
@@ -37,10 +36,9 @@ jobs:
           ./scripts/feeds install -a
           mkdir -p package/asterisk-chan-quectel
           cp -r $GITHUB_WORKSPACE/openwrt/* package/asterisk-chan-quectel/
-          # 适配OpenWRT23.05 Asterisk20
           sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk/g' package/asterisk-chan-quectel/Makefile
 
-      # 5. 编译插件
+      # 5. 编译插件 + 打印真实IPK路径方便排查
       - name: 编译 quectel 插件
         run: |
           cd sdk
@@ -48,12 +46,16 @@ jobs:
           echo 'CONFIG_PACKAGE_asterisk-chan-quectel=m' >> .config
           make defconfig
           make -j$(nproc) V=s package/asterisk-chan-quectel/compile
+          # 打印生成的ipk完整路径
+          echo "=== 已编译的IPK文件列表 ==="
+          find sdk/bin -name "asterisk-chan-quectel_*.ipk"
 
-      # 6. 仅上传我们编译的单一ipk（只有几十KB）
+      # 6. 上传产物（同时匹配base、telephony两个目录，解决找不到文件报错）
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: quectel-x86_64-single-ipk
-          # 只匹配这个模块的安装包，其他系统包全部忽略
-          path: sdk/bin/packages/x86_64/base/asterisk-chan-quectel_*.ipk
+          path: |
+            sdk/bin/packages/x86_64/base/asterisk-chan-quectel_*.ipk
+            sdk/bin/packages/x86_64/telephony/asterisk-chan-quectel_*.ipk
           if-no-files-found: error
