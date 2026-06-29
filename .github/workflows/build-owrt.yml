@@ -34,7 +34,7 @@ jobs:
         run: |
           cd sdk
           
-          # 更新所有 feeds（包含 telephony，其中有 asterisk）
+          # 更新所有 feeds（包含 telephony，其中有 asterisk 20.x）
           ./scripts/feeds update -a
           
           # 安装 feeds（创建符号链接）
@@ -44,8 +44,7 @@ jobs:
           mkdir -p package/asterisk-chan-quectel
           cp -r $GITHUB_WORKSPACE/openwrt/* package/asterisk-chan-quectel/
           
-          # 修复依赖：OpenWRT 23.05 使用 Asterisk 20.x，包名为 asterisk
-          # 建议将 Makefile 中的 DEPENDS:=+asterisk16 改为 DEPENDS:=+asterisk
+          # 适配OpenWRT23.05 Asterisk20，替换依赖为通用asterisk包名
           sed -i 's/DEPENDS:=+asterisk16/DEPENDS:=+asterisk/g' package/asterisk-chan-quectel/Makefile
 
       # 5. 编译
@@ -57,7 +56,7 @@ jobs:
           # 显式启用我们的包
           echo 'CONFIG_PACKAGE_asterisk-chan-quectel=m' >> .config
           make defconfig
-          # 编译（SDK 已包含工具链，无需编译 toolchain）
+          # 多线程编译，SDK自带工具链，不会编译完整toolchain
           make -j$(nproc) V=s package/asterisk-chan-quectel/compile
 
       # 6. 上传产物
