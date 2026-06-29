@@ -1,14 +1,15 @@
-name: Build asterisk-chan-quectel IPK (x86_64 iStoreOS J1900)
+name: Build asterisk-chan-quectel IPK x86_64 (iStoreOS J1900)
 on:
   workflow_dispatch:
   push:
     branches: [main, master]
 
 jobs:
-  compile-ipk-x86_64:
+  compile:
     runs-on: ubuntu-latest
     steps:
-      - name: 替换清华Ubuntu镜像，修复软件源索引
+      # 换清华源加速
+      - name: 替换国内apt镜像
         run: |
           sudo sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
           sudo sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
@@ -16,25 +17,42 @@ jobs:
           sudo apt update -qq --fix-missing
           sudo apt upgrade -y -qq --fix-missing
 
-      - name: 安装OpenWrt编译工具链（兼容Ubuntu24.04）
+      # 安装编译依赖（无python3-distutils）
+      - name: 安装OpenWrt编译工具链
         run: |
           sudo apt install -y -qq \
-            build-essential git wget unzip curl bzip2 file \
-            flex bison perl python3 python3-pip swig \
-            libncurses-dev libssl-dev zlib1g-dev
+            build-essential git wget unzip bzip2 file flex bison perl \
+            python3 python3-pip swig libncurses-dev libssl-dev zlib1g-dev
 
-      - name: 克隆 OpenWrt 23.05
+      # 拉取OpenWrt 23.05
+      - name: 克隆OpenWrt 23.05
         run: |
-          git clone https://github.com/openwrt/openwrt.git openwrt
+          git clone --depth=1 https://github.com/openwrt/openwrt.git openwrt
           cd openwrt
           git checkout openwrt-23.05
-          # 新增：添加chan-quectel自定义feed
-          echo 'src-git chanquectel https://github.com/AlchemillaHQ/asterisk-chan-quectel.git' >> feeds.conf.default
-          # 更新全部feeds并安装
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 生成 x86_64 编译配置
+      # 关键修复：提取仓库openwrt目录内打包文件到标准包路径
+      - name: 导入asterisk-chan-quectel包
+        run: |
+          cd openwrt
+          # 克隆源码到临时文件夹
+          git clone --depth=1 https://github.com/AlchemillaHQ/asterisk-chan-quectel /tmp/cqsrc
+          # 创建标准telephony包目录
+          mkdir -p package/telephony/asterisk-chan-quectel
+          # 复制仓库openwrt下所有打包文件（Makefile就在这里）
+          cp -r /tmp/cqsrc/openwrt/* package/telephony/asterisk-chan-quectel/
+          # 调试打印：确认Makefile存在，方便排错
+          echo "===== 检查包Makefile ====="
+          ls -la package/telephony/asterisk-chan-quectel/
+          # 重载feeds识别新包
+          ./scripts/feeds update telephony
+          ./scripts/feeds install asterisk-chan-quectel
+          rm -rf /tmp/cqsrc
+
+      # 生成x86_64配置
+      - name: 生成编译配置
         run: |
           cd openwrt
           echo "CONFIG_TARGET_x86=y" >> .config
@@ -44,13 +62,15 @@ jobs:
           make defconfig
           make menuconfig -n
 
-      - name: 编译 IPK 安装包
+      # 编译IPK（路径固定为telephony分类下）
+      - name: 编译IPK安装包
         run: |
           cd openwrt
-          make package/asterisk-chan-quectel/compile -j$(nproc) V=sc
+          make package/telephony/asterisk-chan-quectel/compile -j$(nproc) V=sc
 
-      - name: 上传编译好的ipk文件
+      # 上传产物
+      - name: 上传IPK文件
         uses: actions/upload-artifact@v4
         with:
-          name: chan-quectel-x86_64-istoreos-j1900
-          path: openwrt/bin/packages/x86_64/chanquectel/*.ipk
+          name: chan-quectel-x86_64-istoreos
+          path: openwrt/bin/packages/x86_64/telephony/*.ipk
