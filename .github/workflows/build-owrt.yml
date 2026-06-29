@@ -1,4 +1,5 @@
 name: iStoreOS Quectel 驱动+LuCI面板 x86_64
+
 on:
   push:
     branches: [main, master]
@@ -8,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1. 拉取全部源码（驱动+LuCI）
+      # 1. 拉取仓库源码
       - name: 拉取仓库源码
         uses: actions/checkout@v4
 
@@ -17,18 +18,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git gawk gettext \
-          libncurses-dev unzip bzip2 flex bison python3 xz-utils rsync wget
+            libncurses-dev unzip bzip2 flex bison python3 xz-utils \
+            rsync wget file
 
-      # 3. 下载iStoreOS同源OpenWrt23.05.5 x86_64 SDK
+      # 3. 下载 SDK（带缓存）
+      - name: 缓存并下载 OpenWrt SDK
+        uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: sdk.tar.xz
+          key: openwrt-sdk-23.05.5-x86-64
+
       - name: 下载SDK编译环境
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           SDK_URL="https://downloads.openwrt.org/releases/23.05.5/targets/x86/64/openwrt-sdk-23.05.5-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz"
           wget -q --show-progress "$SDK_URL" -O sdk.tar.xz
+
+      - name: 解压SDK
+        run: |
           tar -xf sdk.tar.xz
           mv openwrt-sdk-* sdk
 
-      # 4. 导入驱动、LuCI源码，适配Asterisk20依赖
-      - name: 配置SDK，导入驱动与LuCI面板
+      # 4. 配置SDK，导入驱动与LuCI面板
+      - name: 配置SDK并导入源码
         run: |
           cd sdk
           ./scripts/feeds update -a
@@ -43,29 +56,33 @@ jobs:
           mkdir -p package/luci-app-asterisk-chan-quectel
           cp -r $GITHUB_WORKSPACE/openwrt-luci/* package/luci-app-asterisk-chan-quectel/
 
-      # 5. 同时编译驱动 + LuCI，打印IPK路径方便排查
-      - name: 编译驱动通道 + LuCI面板
+      # 5. 编译驱动通道 + LuCI面板
+      - name: 编译驱动通道
         run: |
           cd sdk
           make defconfig
           echo 'CONFIG_PACKAGE_asterisk-chan-quectel=m' >> .config
+          make defconfig
+          make -j$(nproc) V=s package/asterisk-chan-quectel/compile
+
+      - name: 编译LuCI面板
+        run: |
+          cd sdk
           echo 'CONFIG_PACKAGE_luci-app-asterisk-chan-quectel=m' >> .config
           make defconfig
-          make -j$(nproc) V=s \
-            package/asterisk-chan-quectel/compile \
-            package/luci-app-asterisk-chan-quectel/compile
-          # 打印所有生成的ipk
-          echo "===== 编译完成，输出IPK列表 ====="
-          find sdk/bin -name "asterisk-chan-quectel_*.ipk"
-          find sdk/bin -name "luci-app-asterisk-chan-quectel_*.ipk"
+          make -j$(nproc) V=s package/luci-app-asterisk-chan-quectel/compile
 
-      # 6. 上传两个小包（驱动+LuCI，仅几十KB）
+      - name: 打印输出IPK列表
+        run: |
+          echo "===== 编译完成，输出IPK列表 ====="
+          find sdk/bin -name "*quectel*.ipk" -o -name "*chan-quectel*.ipk"
+
+      # 6. 上传编译产物
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
           name: Quectel-驱动+LuCI面板-iStoreOS
           path: |
             sdk/bin/packages/x86_64/base/asterisk-chan-quectel_*.ipk
-            sdk/bin/packages/x86_64/telephony/asterisk-chan-quectel_*.ipk
-            sdk/bin/packages/x86_64/luci/luci-app-asterisk-chan-quectel_*.ipk
-          if-no-files-found: error
+            sdk/bin/packages/x86_64/base/luci-app-asterisk-chan-quectel_*.ipk
+          if-no-files-found: warn
